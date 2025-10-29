@@ -26,8 +26,15 @@ def launch_redfinger_session(url: str, maximize: bool = True):
     )
     page = browser.new_page(viewport={'width': 1920, 'height': 1080})
     page.goto(url)
-    page.wait_for_load_state('domcontentloaded')
-    time.sleep(5)  # Wait for Redfinger to load
+    # Prefer robust waits over fixed sleep
+    try:
+        page.wait_for_load_state('networkidle', timeout=20000)
+    except Exception:
+        # Fallback to DOMContentLoaded if network idle not reached in time
+        try:
+            page.wait_for_load_state('domcontentloaded', timeout=10000)
+        except Exception:
+            pass
 
     return p, browser, page
 
@@ -54,6 +61,17 @@ def main():
         "model": os.getenv("REASONER_MODEL", "gpt-5-2025-08-07"),
         "api_key": os.getenv("ZAI_API_KEY" if reasoner_provider == "zai" else "OPENAI_API_KEY"),
     }
+
+    # Respect optional temperature override via env; for GPT-5 default to 1.0 to satisfy model restriction
+    model_temperature = os.getenv("MODEL_TEMPERATURE")
+    if model_temperature:
+        try:
+            engine_params["temperature"] = float(model_temperature)
+        except ValueError:
+            pass
+    else:
+        if engine_params["engine_type"] == "openai" and str(engine_params["model"]).startswith("gpt-5"):
+            engine_params["temperature"] = 1.0
 
     # Add base_url for ZAI
     if reasoner_provider == "zai":
@@ -92,32 +110,61 @@ def main():
     import subprocess
     from PIL import Image
 
-    for step in range(args.max_steps):
-        print(f"\n--- Step {step+1}/{args.max_steps} ---")
+    actions_executed = False
+    success = False
 
-        # Capture screen using scrot (works in container)
-        screenshot_path = f'/tmp/screenshot_{step}.png'
-        subprocess.run(['scrot', screenshot_path], check=True)
-        screenshot = Image.open(screenshot_path)
-        buf = io.BytesIO()
-        screenshot.save(buf, format='PNG')
-        obs = {"screenshot": buf.getvalue()}
+    try:
+        for step in range(args.max_steps):
+            print(f"\n--- Step {step+1}/{args.max_steps} ---")
 
-        # Get agent decision
-        info, actions = agent.predict(instruction=args.task, observation=obs)
+            # Capture screen using scrot (works in container)
+            screenshot_path = f'/tmp/screenshot_{step}.png'
+            subprocess.run(['scrot', screenshot_path], check=True)
+            screenshot = Image.open(screenshot_path)
+            buf = io.BytesIO()
+            screenshot.save(buf, format='PNG')
+            obs = {"screenshot": buf.getvalue()}
 
-        if not actions:
-            print("Agent completed task!")
-            break
+            # Get agent decision
+            info, actions = agent.predict(instruction=args.task, observation=obs)
 
-        # Execute actions
-        for action_code in actions:
-            print(f"Executing: {action_code[:100]}...")
-            exec(action_code)
-            time.sleep(0.5)
+            if not actions:
+                print("Agent completed task!")
+                success = True
+                break
 
-    browser.close()
-    p.stop()
+            # Execute actions
+            for action_code in actions:
+                print(f"Executing: {action_code[:100]}...")
+                try:
+                    exec(action_code)
+                    actions_executed = True
+                except Exception as e:
+                    print(f"Action execution error: {e}")
+                time.sleep(0.5)
+
+        if actions_executed:
+            success = True
+    except Exception as e:
+        print(f"Runner error: {e}")
+        success = False
+    finally:
+        try:
+            browser.close()
+        except Exception:
+            pass
+        try:
+            p.stop()
+        except Exception:
+            pass
+
+    # Emit explicit status marker for harness
+    if success:
+        print("HARNESS:STATUS=passed")
+        sys.exit(0)
+    else:
+        print("HARNESS:STATUS=failed")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -323,6 +323,16 @@ Refer to `gui_agents/s3/cli_app.py` for more details on how the inference loop w
 
 To deploy Agent S3 in OSWorld, follow the [OSWorld Deployment instructions](osworld_setup/s3/OSWorld.md).
 
+## ✅ Validation status
+
+An up-to-date summary of validation runs is kept in [docs/VALIDATION_STATUS.md](docs/VALIDATION_STATUS.md).
+
+Regenerate the report after running validations:
+
+```powershell
+python scripts/generate_validation_report.py
+```
+
 ## 💬 Citations
 
 If you find this codebase useful, please cite:

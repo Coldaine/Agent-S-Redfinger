@@ -1,4 +1,5 @@
 import base64
+import os
 
 import numpy as np
 
@@ -20,6 +21,16 @@ class LMMAgent:
             if engine_params is not None:
                 engine_type = engine_params.get("engine_type")
                 if engine_type == "openai":
+                    self.engine = LMMEngineOpenAI(**engine_params)
+                elif engine_type == "zai":
+                    # Map ZAI to OpenAI-compatible client with custom base URL
+                    # Fallbacks allow usage via environment without explicit CLI args
+                    if not engine_params.get("base_url"):
+                        engine_params["base_url"] = os.getenv(
+                            "ZAI_BASE_URL", "https://api.z.ai/api/coding/paas/v4"
+                        )
+                    if not engine_params.get("api_key"):
+                        engine_params["api_key"] = os.getenv("ZAI_API_KEY")
                     self.engine = LMMEngineOpenAI(**engine_params)
                 elif engine_type == "anthropic":
                     self.engine = LMMEngineAnthropic(**engine_params)
@@ -289,17 +300,25 @@ class LMMAgent:
             )
 
         # Regular generation
-        if use_thinking:
+        if use_thinking and isinstance(self.engine, LMMEngineAnthropic) and hasattr(
+            self.engine, "generate_with_thinking"
+        ):
+            # Only Anthropic supports thinking mode
+            extra_kwargs = dict(kwargs)
+            if max_new_tokens is not None:
+                extra_kwargs["max_new_tokens"] = max_new_tokens
             return self.engine.generate_with_thinking(
                 messages,
                 temperature=temperature,
-                max_new_tokens=max_new_tokens,
-                **kwargs,
+                **extra_kwargs,
             )
 
+        # Fallback to regular generation for all engines
+        extra_kwargs = dict(kwargs)
+        if max_new_tokens is not None:
+            extra_kwargs["max_new_tokens"] = max_new_tokens
         return self.engine.generate(
             messages,
             temperature=temperature,
-            max_new_tokens=max_new_tokens,
-            **kwargs,
+            **extra_kwargs,
         )

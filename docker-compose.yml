@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  agent-redfinger:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.redfinger
+    container_name: agent-s3-redfinger
+    environment:
+      - DISPLAY=:99
+      - ENABLE_VNC=${ENABLE_VNC:-true}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ZAI_API_KEY=${ZAI_API_KEY}
+      - REASONER_MODEL=${REASONER_MODEL:-gpt-4o-2024-08-06}
+      - VISION_MODEL=${VISION_MODEL:-gpt-4o-2024-08-06}
+      - VISION_PROVIDER=${VISION_PROVIDER:-openai}
+    volumes:
+      - ./redfinger:/workspace/redfinger
+      - ./logs:/workspace/logs
+      - ./.env:/workspace/.env
+    ports:
+      - "5900:5900"  # VNC port (optional)
+    stdin_open: true
+    tty: true
+    command: >
+      python3 /workspace/redfinger/run_redfinger.py
+      --url "${REDFINGER_URL}"
+      --task "${TASK}"
+      --max-steps ${MAX_STEPS:-50}

@@ -1,0 +1,52 @@
+FROM ubuntu:22.04
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
+ENV PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    # Python 3.10
+    python3.10 \
+    python3-pip \
+    python3-venv \
+    # Virtual display
+    xvfb \
+    x11vnc \
+    # Window manager
+    metacity \
+    # Browser
+    chromium-browser \
+    # PyAutoGUI dependencies
+    python3-tk \
+    python3-dev \
+    scrot \
+    xdotool \
+    wmctrl \
+    # Utilities
+    git \
+    curl \
+    wget \
+    # Fonts (for rendering)
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Copy Agent-S code
+COPY . /workspace/
+
+# Install Python dependencies
+RUN pip3 install --no-cache-dir -r requirements.txt
+RUN python3 -m playwright install chromium
+RUN python3 -m playwright install-deps chromium
+
+# Create startup script
+COPY docker/entrypoint-redfinger.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Expose VNC port (for debugging)
+EXPOSE 5900
+
+ENTRYPOINT ["/entrypoint.sh"]

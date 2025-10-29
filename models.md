@@ -1,4 +1,4 @@
-We support the following APIs for MLLM inference: OpenAI, Anthropic, Gemini, Azure OpenAI, vLLM for local models, and Open Router. To use these APIs, you need to set the corresponding environment variables:
+We support the following APIs for MLLM inference: OpenAI, Anthropic, Gemini, Azure OpenAI, vLLM for local models, Open Router, and ZAI (OpenAI-compatible). To use these APIs, you need to set the corresponding environment variables:
 
 1. OpenAI
 
@@ -41,11 +41,23 @@ export OPENROUTER_API_KEY=<YOUR_API_KEY>
 export OPEN_ROUTER_ENDPOINT_URL="https://openrouter.ai/api/v1"
 ```
 
+7. ZAI (OpenAI-compatible)
+
+```
+export ZAI_API_KEY=<YOUR_API_KEY>
+export ZAI_BASE_URL="https://api.z.ai/api/coding/paas/v4"
+```
+
+Usage notes:
+
+- In CLI, use `--provider zai` and a vision-capable model like `glm-4.5v`.
+- In code, ZAI maps to the OpenAI-compatible client behind the scenes. You can also pass `base_url` and `api_key` directly via `engine_params`.
+
 ```python
 from gui_agents.s2_5.agents.agent_s import AgentS2_5
 
 engine_params = {
-    "engine_type": 'openai', # Allowed Values: 'openai', 'anthropic', 'gemini', 'azure_openai', 'vllm', 'open_router'
+    "engine_type": 'openai', # Allowed Values: 'openai', 'anthropic', 'gemini', 'azure_openai', 'vllm', 'open_router', 'zai'
     "model": 'gpt-5-2025-08-07', # Allowed Values: Any Vision and Language Model from the supported APIs
 }
 agent = AgentS2_5(

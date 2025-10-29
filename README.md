@@ -129,7 +129,7 @@ os.environ["OPENAI_API_KEY"] = "<YOUR_API_KEY>"
 ```
 
 ### Supported Models
-We support Azure OpenAI, Anthropic, Gemini, Open Router, and vLLM inference. See [models.md](models.md) for details.
+We support OpenAI, Anthropic, Gemini, Azure OpenAI, Open Router, vLLM, and ZAI (OpenAI-compatible endpoint). See [models.md](models.md) for details.
 
 ### Grounding Models (Required)
 For optimal performance, we recommend [UI-TARS-1.5-7B](https://huggingface.co/ByteDance-Seed/UI-TARS-1.5-7B) hosted on Hugging Face Inference Endpoints or another provider. See [Hugging Face Inference Endpoints](https://huggingface.co/learn/cookbook/en/enterprise_dedicated_endpoints) for setup instructions.
@@ -149,7 +149,7 @@ Run Agent S3 with the required parameters:
 
 ```bash
 agent_s \
-    --provider openai \
+  --provider openai \
     --model gpt-5-2025-08-07 \
     --ground_provider huggingface \
     --ground_url http://localhost:8080 \
@@ -185,7 +185,7 @@ agent_s \
 - **`--grounding_height`**: Height of the output coordinate resolution from the grounding model - **Required**
 
 #### Optional Parameters
-- **`--model_temperature`**: The temperature to fix all model calls to (necessary to set to 1.0 for models like o3 but can be left blank for other models)
+- **`--model_temperature`**: The temperature to fix all model calls to (set to 1.0 for models that require the default temperature, e.g., GPT‑5)
 
 #### Grounding Model Dimensions
 The grounding width and height should match the output coordinate resolution of your grounding model:
@@ -199,6 +199,29 @@ The grounding width and height should match the output coordinate resolution of 
 - **`--max_trajectory_length`**: Maximum number of image turns to keep in trajectory - Default: 8
 - **`--enable_reflection`**: Enable reflection agent to assist the worker agent - Default: True
 - **`--enable_local_env`**: Enable local coding environment for code execution (WARNING: Executes arbitrary code locally) - Default: False
+
+##### ZAI Usage Example (OpenAI-compatible)
+
+You can target ZAI’s OpenAI-compatible API by using `--provider zai` and either environment variables or explicit URL/key:
+
+```bash
+agent_s \
+  --provider zai \
+  --model glm-4.5v \
+  --model_temperature 1.0 \
+  --ground_provider huggingface \
+  --ground_url http://localhost:8080 \
+  --ground_model ui-tars-1.5-7b \
+  --grounding_width 1920 \
+  --grounding_height 1080
+```
+
+Environment variables (optional if not passed via CLI):
+
+```bash
+export ZAI_API_KEY=<YOUR_ZAI_KEY>
+export ZAI_BASE_URL=https://api.z.ai/api/coding/paas/v4
+```
 
 #### Local Coding Environment Details
 The local coding environment enables Agent S3 to execute Python and Bash code directly on your machine. This is particularly useful for:

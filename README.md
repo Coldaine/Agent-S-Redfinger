@@ -2,7 +2,6 @@
   <img src="images/agent_s.png" alt="Logo" style="vertical-align:middle" width="60"> Agent S:
   <small>Use Computer Like a Human</small>
 </h1>
-
 <p align="center">&nbsp;
   🌐 <a href="https://www.simular.ai/articles/agent-s3">[S3 blog]</a>&nbsp;
   📄 <a href="https://arxiv.org/abs/2510.02250">[S3 Paper]</a>&nbsp;
@@ -82,57 +81,6 @@ Welcome to **Agent S**, an open-source framework designed to enable autonomous i
 
 Whether you're interested in AI, automation, or contributing to cutting-edge agent-based systems, we're excited to have you here!
 
-## 🎯 Current Results
-
-<p align="center">
-  <img src="images/s3_results.png" alt="Agent S3 Results" width="700"/>
-</p>
-
-On OSWorld, Agent S3 alone reaches 62.6% in the 100-step setting, already exceeding the previous state of the art of 61.4% (Claude Sonnet 4.5). With the addition of Behavior Best-of-N, performance climbs even higher to 69.9%, bringing computer-use agents to within just a few points of human-level accuracy (72%).
-
-Agent S3 also demonstrates strong zero-shot generalization. On WindowsAgentArena, accuracy rises from 50.2% using only Agent S3 to 56.6% by selecting from 3 rollouts. Similarly on AndroidWorld, performance improves from 68.1% to 71.6%
-
-## 🛠️ Installation & Setup
-
-### Prerequisites
-- **Single Monitor**: Our agent is designed for single monitor screens
-- **Security**: The agent runs Python code to control your computer - use with care
-- **Supported Platforms**: Linux, Mac, and Windows
-
-
-### Installation
-To install Agent S3 without cloning the repository, run
-```bash
-pip install gui-agents
-```
-If you would like to test Agent S3 while making changes, clone the repository and install using
-```
-pip install -e .
-```
-
-Don't forget to also `brew install tesseract`! Pytesseract requires this extra installation to work.
-
-### API Configuration
-
-#### Option 1: Environment Variables
-Add to your `.bashrc` (Linux) or `.zshrc` (MacOS):
-```bash
-export OPENAI_API_KEY=<YOUR_API_KEY>
-export ANTHROPIC_API_KEY=<YOUR_ANTHROPIC_API_KEY>
-export HF_TOKEN=<YOUR_HF_TOKEN>
-```
-
-#### Option 2: Python Script
-```python
-import os
-os.environ["OPENAI_API_KEY"] = "<YOUR_API_KEY>"
-```
-
-### Supported Models
-We support OpenAI, Anthropic, Gemini, Azure OpenAI, Open Router, vLLM, and ZAI (OpenAI-compatible endpoint). See [models.md](models.md) for details.
-
-### Grounding Models (Required)
-For optimal performance, we recommend [UI-TARS-1.5-7B](https://huggingface.co/ByteDance-Seed/UI-TARS-1.5-7B) hosted on Hugging Face Inference Endpoints or another provider. See [Hugging Face Inference Endpoints](https://huggingface.co/learn/cookbook/en/enterprise_dedicated_endpoints) for setup instructions.
 
 ## 🚀 Usage
 
@@ -356,7 +304,116 @@ Regenerate the report after running validations:
 python scripts/generate_validation_report.py
 ```
 
-## 💬 Citations
+## ▶️ Next steps: run Phase 5 with the harness
+
+We now provide a robust Phase 5 harness that prevents hangs (stall/overall timeouts), streams logs to files, writes structured results, and refreshes the validation dashboard automatically.
+
+Artifacts per run are saved under `logs/phase5/<timestamp>/`:
+- `stdout.log`, `stderr.log`: full output
+- `meta.json`: exactly what was run (provider/model/temp/command)
+- `result.json`: status, timeouts, exit code, detected signals
+
+Run a preflight check (ensures Docker is reachable):
+
+```powershell
+python scripts/run_phase5_harness.py --dry-run
+```
+
+Run Phase 5 with GPT‑5 at temperature 1.0:
+
+```powershell
+python scripts/run_phase5_harness.py \
+  --provider openai \
+  --model gpt-5-2025-08-07 \
+  --model-temperature 1.0 \
+  --url "https://www.google.com" \
+  --task "Click on the search box and type weather" \
+  --max-steps 5 \
+  --overall-timeout 900 \
+  --stall-timeout 120
+```
+
+Run Phase 5 with ZAI GLM‑4.5V at temperature 1.0:
+
+```powershell
+# Optional if not in .env
+# $env:ZAI_API_KEY = '<your_key>'
+# $env:ZAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+
+python scripts/run_phase5_harness.py \
+  --provider zai \
+  --model glm-4.5v \
+  --model-temperature 1.0 \
+  --url "https://www.google.com" \
+  --task "Click on the search box and type weather" \
+  --max-steps 5 \
+  --overall-timeout 900 \
+  --stall-timeout 120
+```
+
+Optional hygiene toggles:
+- `--auto-start-docker`: best‑effort start of Docker Desktop (Windows)
+- `--compose-down-before` / `--compose-down-after`: run `docker-compose down --remove-orphans` before/after
+- `--compose-build`: rebuild images before running
+
+The harness prints an explicit status marker and exit code on completion:
+- `HARNESS:STATUS=passed` → exit code 0
+- `HARNESS:STATUS=failed` → exit code 1
+
+After each run, `docs/VALIDATION_STATUS.md` is refreshed automatically.
+
+## � Development Workflow
+
+**🚨 IMPORTANT: All changes must follow our Git workflow!**
+
+### For Contributors
+
+Before making ANY changes to this repository:
+
+1. **📖 Read the Contributing Guide**: [CONTRIBUTING.md](CONTRIBUTING.md)
+2. **🌿 Create a Feature Branch**: Never commit directly to `main`
+3. **📝 Update the Changelog**: Add your changes to [CHANGELOG.md](CHANGELOG.md)
+4. **✅ Run Pre-flight Checks**: Validate before pushing
+5. **🔍 Open a Pull Request**: All changes require review
+
+### Quick Workflow Reference
+
+```bash
+# 1. Create feature branch
+git checkout -b feature/your-feature-name
+
+# 2. Make your changes
+
+# 3. Update CHANGELOG.md (REQUIRED!)
+
+# 4. Run pre-flight checks
+python scripts/run_phase5_harness.py --dry-run
+
+# 5. Commit and push
+git add .
+git commit -m "feat: descriptive commit message"
+git push origin feature/your-feature-name
+
+# 6. Open PR on GitHub and request review
+```
+
+### Why This Matters
+
+- **Quality Control**: Every change is reviewed before merge
+- **Documentation**: CHANGELOG.md keeps everyone informed
+- **Stability**: Feature branches prevent breaking main
+- **Collaboration**: PRs enable discussion and knowledge sharing
+
+### Need Help?
+
+- **Workflow Questions**: See [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Recent Changes**: Check [CHANGELOG.md](CHANGELOG.md)
+- **Issues/Bugs**: Open a GitHub Issue
+- **Feature Requests**: Open a GitHub Issue with use case
+
+---
+
+## �💬 Citations
 
 If you find this codebase useful, please cite:
 

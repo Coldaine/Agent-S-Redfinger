@@ -362,17 +362,44 @@ with sync_playwright() as p:
    - Agent code → Check logs for Python errors
    - Coordinates → See `docs/TROUBLESHOOTING_GUIDE.md` section "Clicks Miss Targets"
 
-### Test 5.1: Run Simple Google Search Task
+### Test 5.1: Run Simple Google Search Task (Recommended: Harness)
 
 **Purpose**: Test complete agent pipeline with simple task
 
-```bash
-# Create test environment variable:
-set TASK="Search for weather"
-set REDFINGER_URL="https://www.google.com"
-set MAX_STEPS=5
+Option A — Preferred (Harness with timeouts, logs, and result files):
 
-# Run agent:
+```powershell
+# Preflight
+python scripts/run_phase5_harness.py --dry-run
+
+# GPT‑5 with temperature 1.0
+python scripts/run_phase5_harness.py `
+   --provider openai `
+   --model gpt-5-2025-08-07 `
+   --model-temperature 1.0 `
+   --url "https://www.google.com" `
+   --task "Click on the search box and type weather" `
+   --max-steps 5 `
+   --overall-timeout 900 `
+   --stall-timeout 120
+
+# ZAI GLM‑4.5V with temperature 1.0
+python scripts/run_phase5_harness.py `
+   --provider zai `
+   --model glm-4.5v `
+   --model-temperature 1.0 `
+   --url "https://www.google.com" `
+   --task "Click on the search box and type weather" `
+   --max-steps 5 `
+   --overall-timeout 900 `
+   --stall-timeout 120
+```
+
+Artifacts: `logs/phase5/<timestamp>/stdout.log`, `stderr.log`, `meta.json`, `result.json` (and the status page updates automatically).
+
+Option B — Direct docker-compose (legacy; less robust):
+
+```powershell
 docker-compose run --rm agent-redfinger python3 /workspace/redfinger/run_redfinger.py --url "https://www.google.com" --task "Click on the search box and type weather" --max-steps 5
 ```
 
@@ -389,7 +416,7 @@ Starting task: Click on the search box and type weather
 **Success Criteria**:
 - ✅ Browser opens
 - ✅ Agent initializes
-- ✅ Takes at least one action
+- ✅ Takes at least one action (or prints `HARNESS:STATUS=passed`)
 - ✅ No Python errors
 
 **Common Issues**:

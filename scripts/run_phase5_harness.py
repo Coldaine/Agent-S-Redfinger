@@ -2,14 +2,16 @@ import argparse
 import datetime
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
 import threading
 import time
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Set
 
 # Harness for running Phase 5 integration tests with robust logging, timeouts, and results.
+# Refactored for real-time monitoring with fast feedback loops.
 # Artifacts are written under logs/phase5/<timestamp>/ including stdout.log, stderr.log, meta.json, result.json.
 # Designed for Windows host (PowerShell) with docker-compose.
 
@@ -89,67 +91,196 @@ def build_compose_run_cmd(url: str, task: str, max_steps: int,
     return cmd
 
 
-def stream_output(pipe, log_file, last_line_ts_ref, stop_event):
-    with open(log_file, "w", encoding="utf-8", errors="ignore") as f:
-        for line in iter(pipe.readline, ""):
-            f.write(line)
-            f.flush()
-            last_line_ts_ref[0] = time.time()
-            if stop_event.is_set():
-                break
+class LogMonitor:
+    """Real-time log monitor with fast signal detection."""
+    
+    def __init__(self, log_file: str, monitor_interval: float = 2.0):
+        self.log_file = log_file
+        self.monitor_interval = monitor_interval
+        self.signals = {
+            "saw_start": False,
+            "saw_action": False,
+            "saw_complete": False,
+            "saw_error": False,
+            "saw_error_400_temperature": False,
+            "saw_harness_pass": False,
+            "saw_harness_fail": False,
+            "saw_api_error": False,
+            "saw_import_error": False,
+        }
+        self.step_count = 0
+        self.last_activity = time.time()
+        
+    def check_line(self, line: str) -> bool:
+        """Check a line for signals. Returns True if terminal signal detected."""
+        self.last_activity = time.time()
+        
+        # Success signals
+        if "Starting task:" in line:
+            self.signals["saw_start"] = True
+            print(f"  ✓ Task started")
+        if "Executing:" in line or "Action:" in line:
+            self.signals["saw_action"] = True
+            self.step_count += 1
+            print(f"  ✓ Action {self.step_count} executed")
+        if "Agent completed task" in line:
+            self.signals["saw_complete"] = True
+            print(f"  ✓ Task completed!")
+            return True
+        if "HARNESS:STATUS=passed" in line:
+            self.signals["saw_harness_pass"] = True
+            print(f"  ✓ HARNESS PASSED")
+            return True
+            
+        # Failure signals
+        if "HARNESS:STATUS=failed" in line:
+            self.signals["saw_harness_fail"] = True
+            print(f"  ✗ HARNESS FAILED")
+            return True
+        if "Unsupported value: 'temperature'" in line or "param': 'temperature'" in line:
+            self.signals["saw_error_400_temperature"] = True
+            print(f"  ✗ Temperature parameter error detected")
+            return True
+        if "API key" in line.lower() and ("invalid" in line.lower() or "error" in line.lower()):
+            self.signals["saw_api_error"] = True
+            print(f"  ✗ API authentication error")
+            return True
+        if "ImportError" in line or "ModuleNotFoundError" in line:
+            self.signals["saw_import_error"] = True
+            print(f"  ✗ Import error detected")
+            return True
+        if "Error:" in line or "ERROR:" in line or "Exception:" in line:
+            self.signals["saw_error"] = True
+            # Don't return True - not all errors are terminal
+            
+        return False
+    
+    def read_log_tail(self, lines: int = 50) -> List[str]:
+        """Read last N lines from log file."""
+        try:
+            with open(self.log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                return f.readlines()[-lines:]
+        except FileNotFoundError:
+            return []
+    
+    def get_status(self) -> str:
+        """Determine current status from signals."""
+        if self.signals["saw_harness_pass"]:
+            return "passed"
+        if self.signals["saw_harness_fail"]:
+            return "failed"
+        if self.signals["saw_error_400_temperature"]:
+            return "failed"
+        if self.signals["saw_api_error"]:
+            return "failed"
+        if self.signals["saw_import_error"]:
+            return "failed"
+        if self.signals["saw_complete"]:
+            return "passed"
+        if self.signals["saw_action"]:
+            return "running"
+        if self.signals["saw_start"]:
+            return "started"
+        return "unknown"
 
 
-def run_with_timeouts(cmd: List[str], workdir: str, overall_timeout: int, stall_timeout: int, container_name: Optional[str]) -> Dict:
+def run_with_monitoring(cmd: List[str], workdir: str, overall_timeout: int, 
+                       stall_timeout: int, monitor_interval: float,
+                       container_name: Optional[str]) -> Dict:
+    """Run container and actively monitor logs with fast feedback."""
     ensure_dir(workdir)
     stdout_log = os.path.join(workdir, "stdout.log")
     stderr_log = os.path.join(workdir, "stderr.log")
-
+    
+    # Start the container
+    print(f"Starting container: {container_name}")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-
-    last_line_ts = [time.time()]
-    stop_event = threading.Event()
-
-    t_out = threading.Thread(target=stream_output, args=(proc.stdout, stdout_log, last_line_ts, stop_event))
-    t_err = threading.Thread(target=stream_output, args=(proc.stderr, stderr_log, last_line_ts, stop_event))
-    t_out.daemon = True
-    t_err.daemon = True
-    t_out.start()
-    t_err.start()
-
+    
+    # Start log file writers
+    stdout_f = open(stdout_log, "w", encoding="utf-8", errors="ignore")
+    stderr_f = open(stderr_log, "w", encoding="utf-8", errors="ignore")
+    
+    monitor = LogMonitor(stdout_log, monitor_interval)
     start = time.time()
     timed_out = False
     stalled = False
     exit_code = None
-
+    last_log_pos = 0
+    
+    print(f"\nMonitoring logs (checking every {monitor_interval}s)...")
+    print("=" * 60)
+    
     try:
         while True:
-            if proc.poll() is not None:
-                exit_code = proc.returncode
+            # Check if process finished
+            poll_result = proc.poll()
+            if poll_result is not None:
+                exit_code = poll_result
+                print(f"\n✓ Container exited with code {exit_code}")
                 break
-            if time.time() - start > overall_timeout:
+            
+            # Read and write any new output
+            for pipe, log_f in [(proc.stdout, stdout_f), (proc.stderr, stderr_f)]:
+                if pipe is None:
+                    continue
+                try:
+                    while True:
+                        line = pipe.readline()
+                        if not line:
+                            break
+                        log_f.write(line)
+                        log_f.flush()
+                        
+                        # Check for signals in stdout
+                        if pipe == proc.stdout:
+                            is_terminal = monitor.check_line(line)
+                            if is_terminal:
+                                print(f"\n✓ Terminal signal detected, stopping container...")
+                                proc.terminate()
+                                time.sleep(2)
+                                if proc.poll() is None:
+                                    proc.kill()
+                                exit_code = 0
+                                break
+                except:
+                    pass
+            
+            # Check timeouts
+            elapsed = time.time() - start
+            if elapsed > overall_timeout:
                 timed_out = True
+                print(f"\n✗ Overall timeout ({overall_timeout}s) reached")
                 proc.kill()
                 break
-            if time.time() - last_line_ts[0] > stall_timeout:
+            
+            stall_time = time.time() - monitor.last_activity
+            if stall_time > stall_timeout:
                 stalled = True
+                print(f"\n✗ Stall timeout ({stall_timeout}s) - no activity")
                 proc.kill()
                 break
-            time.sleep(1)
+            
+            # Status update
+            status = monitor.get_status()
+            print(f"[{elapsed:.0f}s] Status: {status}, Steps: {monitor.step_count}, Last activity: {stall_time:.0f}s ago", end='\r')
+            
+            time.sleep(monitor_interval)
+            
     finally:
-        stop_event.set()
-        try:
-            t_out.join(timeout=3)
-            t_err.join(timeout=3)
-        except Exception:
-            pass
-
-        # Best-effort cleanup if we assigned a name and the container might still be running
+        stdout_f.close()
+        stderr_f.close()
+        
+        # Cleanup container if needed
         if container_name and (timed_out or stalled):
+            print(f"\nCleaning up container: {container_name}")
             try:
-                subprocess.run(["docker", "rm", "-f", container_name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["docker", "rm", "-f", container_name], 
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 pass
-
+    
+    print("\n" + "=" * 60)
+    
     return {
         "stdout_log": stdout_log,
         "stderr_log": stderr_log,
@@ -157,11 +288,13 @@ def run_with_timeouts(cmd: List[str], workdir: str, overall_timeout: int, stall_
         "stalled": stalled,
         "exit_code": exit_code,
         "duration_sec": round(time.time() - start, 2),
+        "step_count": monitor.step_count,
+        "signals": monitor.signals,
     }
 
 
-def detect_success(stdout_path: str) -> Dict[str, bool]:
-    # Heuristics: look for evidence of action execution or completion
+def detect_success_fallback(stdout_path: str) -> Dict[str, bool]:
+    """Fallback signal detection for post-mortem analysis."""
     signals = {
         "saw_start": False,
         "saw_action": False,
@@ -201,6 +334,7 @@ def main():
     parser.add_argument("--vision-model", default=None)
     parser.add_argument("--overall-timeout", type=int, default=900, help="Overall timeout in seconds (default 15m)")
     parser.add_argument("--stall-timeout", type=int, default=120, help="No-output stall timeout in seconds")
+    parser.add_argument("--monitor-interval", type=float, default=2.0, help="How often to check logs (seconds, default 2.0)")
     parser.add_argument("--dry-run", action="store_true", help="Only check Docker readiness and exit")
     parser.add_argument("--auto-start-docker", action="store_true", help="Attempt to start Docker Desktop on Windows before checking readiness")
     parser.add_argument("--compose-down-before", action="store_true", help="Run 'docker-compose down --remove-orphans' before test")
@@ -272,15 +406,17 @@ def main():
     with open(os.path.join(run_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
 
-    outcome = run_with_timeouts(
+    outcome = run_with_monitoring(
         cmd,
         workdir=run_dir,
         overall_timeout=args.overall_timeout,
         stall_timeout=args.stall_timeout,
+        monitor_interval=args.monitor_interval,
         container_name=default_container_name,
     )
 
-    signals = detect_success(outcome["stdout_log"])
+    # Signals are already in outcome from monitor
+    signals = outcome.get("signals", {})
 
     status = "unknown"
     # Primary: explicit status marker from inner runner

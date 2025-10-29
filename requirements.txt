@@ -13,9 +13,10 @@ websockets
 tiktoken
 pyautogui
 toml
-black
+ruff
 pytesseract
 google-genai
+playwright
 
 # Platform-specific dependencies
 pyobjc; platform_system == "Darwin"

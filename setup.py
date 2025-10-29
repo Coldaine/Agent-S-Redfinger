@@ -32,7 +32,7 @@ setup(
         'pywinauto; platform_system == "Windows"',  # Only for Windows
         'pywin32; platform_system == "Windows"',  # Only for Windows
     ],
-    extras_require={"dev": ["black"]},  # Code formatter for linting
+    extras_require={"dev": ["ruff"]},  # Ruff for linting/formatting
     entry_points={
         "console_scripts": [
             "agent_s=gui_agents.s3.cli_app:main",

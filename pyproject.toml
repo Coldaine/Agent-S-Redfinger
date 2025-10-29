@@ -1,0 +1,22 @@
+[tool.ruff]
+line-length = 88
+# Match the CI matrix and supported versions
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "W",   # pycodestyle warnings
+  "I",   # isort (import sorting)
+]
+# Allow __init__.py to re-export without triggering F401
+per-file-ignores = {
+  "**/__init__.py" = ["F401"],
+}
+
+[tool.ruff.format]
+# Use Ruff as the formatter replacement for Black
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

@@ -53,19 +53,34 @@ class LMMEngineOpenAI(LMMEngine):
                 self.llm_client = OpenAI(
                     base_url=self.base_url, api_key=api_key, organization=organization
                 )
-        return (
-            self.llm_client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                # max_completion_tokens=max_new_tokens if max_new_tokens else 4096,
-                temperature=(
-                    temperature if self.temperature is None else self.temperature
-                ),
-                **kwargs,
+        
+        # GPT-5 and o3 models only support default temperature - don't pass the parameter
+        # to avoid API errors (these models reject temperature != 1.0)
+        if self.model.startswith("gpt-5") or self.model.startswith("o3"):
+            return (
+                self.llm_client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    # Don't pass temperature for restricted models
+                    **kwargs,
+                )
+                .choices[0]
+                .message.content
             )
-            .choices[0]
-            .message.content
-        )
+        else:
+            return (
+                self.llm_client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    # max_completion_tokens=max_new_tokens if max_new_tokens else 4096,
+                    temperature=(
+                        temperature if self.temperature is None else self.temperature
+                    ),
+                    **kwargs,
+                )
+                .choices[0]
+                .message.content
+            )
 
 
 class LMMEngineAnthropic(LMMEngine):

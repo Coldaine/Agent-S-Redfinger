@@ -6,7 +6,7 @@ Launches browser to Redfinger URL and executes task.
 import os
 import sys
 import time
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright  # type: ignore
 
 # Add Agent-S to path
 sys.path.insert(0, '/workspace')
@@ -88,6 +88,11 @@ def main():
         "grounding_height": 1080,
     }
 
+    # Set temperature for grounding model (GPT-5 requires temperature=1.0)
+    grounding_model = grounding_params["model"]
+    if grounding_params["engine_type"] == "openai" and str(grounding_model).startswith("gpt-5"):
+        grounding_params["temperature"] = 1.0
+
     # Add base_url for ZAI grounding
     if vision_provider == "zai":
         grounding_params["base_url"] = os.getenv("ZAI_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
@@ -105,7 +110,6 @@ def main():
 
     # Agent loop
     print(f"Starting task: {args.task}")
-    import pyautogui
     import io
     import subprocess
     from PIL import Image
@@ -143,7 +147,7 @@ def main():
                     print(f"Action execution error: {e}")
                 time.sleep(0.5)
 
-        if actions_executed:
+        if actions_executed and not success:
             success = True
     except Exception as e:
         print(f"Runner error: {e}")

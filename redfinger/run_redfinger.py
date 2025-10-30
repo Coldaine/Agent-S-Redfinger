@@ -62,17 +62,6 @@ def main():
         "api_key": os.getenv("ZAI_API_KEY" if reasoner_provider == "zai" else "OPENAI_API_KEY"),
     }
 
-    # Respect optional temperature override via env; for GPT-5 default to 1.0 to satisfy model restriction
-    model_temperature = os.getenv("MODEL_TEMPERATURE")
-    if model_temperature:
-        try:
-            engine_params["temperature"] = float(model_temperature)
-        except ValueError:
-            pass
-    else:
-        if engine_params["engine_type"] == "openai" and str(engine_params["model"]).startswith("gpt-5"):
-            engine_params["temperature"] = 1.0
-
     # Add base_url for ZAI
     if reasoner_provider == "zai":
         engine_params["base_url"] = os.getenv("ZAI_BASE_URL", "https://api.z.ai/api/coding/paas/v4")
@@ -87,11 +76,6 @@ def main():
         "grounding_width": 1920,
         "grounding_height": 1080,
     }
-
-    # Set temperature for grounding model (GPT-5 requires temperature=1.0)
-    grounding_model = grounding_params["model"]
-    if grounding_params["engine_type"] == "openai" and str(grounding_model).startswith("gpt-5"):
-        grounding_params["temperature"] = 1.0
 
     # Add base_url for ZAI grounding
     if vision_provider == "zai":

@@ -31,6 +31,12 @@ cp .env.example .env
 python -m src.drivers.browser_selenium
 ```
 
+### Configuration
+- Token limits for vision responses can be tuned via environment variables:
+   - `VISION_MAX_COMPLETION_TOKENS` (default 300) for GPT‑5/o3/o4 families
+   - `VISION_MAX_TOKENS` (default 300) for older models
+- To explicitly allow "-pro" model variants, set `VISION_ALLOW_PRO_MODELS=true` (disabled by default).
+
 ### Browser demo (with or without a vision provider)
 ```bash
 # Center click only (no provider)
@@ -66,6 +72,12 @@ See: `src/vision/normalizer.py` and `src/drivers/browser_selenium.py`.
 - **Multiple monitors:** Prefer keeping the browser on your main monitor initially.
 
 ---
+
+## Security and maintenance
+- Dependency scanning (optional):
+   - Install pip-audit and scan: `pip install pip-audit && pip-audit`
+   - Or use Safety: `pip install safety && safety check`
+- Tests: run `pytest -q` to validate JSON extraction and normalization helpers.
 
 ## License
 MIT for this scaffold. Your model/API licenses apply for providers.

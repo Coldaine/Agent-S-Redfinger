@@ -85,14 +85,50 @@ def normalized_to_element_offsets(
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+def _extract_by_brace_match(text: str) -> Optional[str]:
+    in_str = False
+    esc = False
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if esc:
+            esc = False
+            continue
+        if ch == "\\":
+            esc = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
+        if ch == "{" and depth == 0:
+            start = i
+            depth = 1
+            continue
+        if ch == "{" and depth > 0:
+            depth += 1
+            continue
+        if ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start != -1:
+                return text[start:i+1]
+    return None
+
 def extract_json_object(text: str) -> Dict[str, Any]:
     text = text.strip()
+    # Fast path
     if text.startswith("{"):
         return json.loads(text)
+    # Try robust brace-matching first
+    candidate = _extract_by_brace_match(text)
+    if candidate:
+        return json.loads(candidate)
+    # Fall back to greedy regex as a last resort
     m = _JSON_OBJECT_RE.search(text)
-    if not m:
-        raise ValueError("No JSON object found in provider response.")
-    return json.loads(m.group(0))
+    if m:
+        return json.loads(m.group(0))
+    raise ValueError("No JSON object found in provider response.")
 
 def coerce_provider_coords(
     provider_json: Dict[str, Any],

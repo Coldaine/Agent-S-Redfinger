@@ -12,7 +12,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 from src.vision.normalizer import (
     Frame, to_normalized, normalized_to_element_offsets,
-    coerce_provider_coords, extract_json_object, explain_offsets
+    coerce_provider_coords, extract_json_object, explain_offsets, CoordSpace
 )
 
 @dataclass
@@ -26,6 +26,10 @@ class SeleniumCanvasDriver:
     def __init__(self, browser: str = "chrome"):
         self.browser = browser.lower()
         self.driver: Optional[webdriver.Chrome] = None
+
+    # Custom exception to make error handling explicit at call sites
+    class DriverNotOpenError(RuntimeError):
+        pass
 
     def open(self, start_url: Optional[str] = None):
         if self.browser != "chrome":
@@ -47,12 +51,14 @@ class SeleniumCanvasDriver:
             self.driver = None
 
     def goto(self, url: str):
-        assert self.driver, "Driver not open"
+        if not self.driver:
+            raise SeleniumCanvasDriver.DriverNotOpenError("Driver not open. Call open() first.")
         self.driver.get(url)
         time.sleep(0.5)
 
     def _find(self, selector: str):
-        assert self.driver, "Driver not open"
+        if not self.driver:
+            raise SeleniumCanvasDriver.DriverNotOpenError("Driver not open. Call open() first.")
         return self.driver.find_element(By.CSS_SELECTOR, selector)
 
     def element_rect(self, selector: str) -> ElementRect:
@@ -70,7 +76,10 @@ class SeleniumCanvasDriver:
             return im.size  # (w, h)
 
     def click_normalized(self, selector: str, nx: float, ny: float, png_w: int, png_h: int) -> Dict:
-        assert self.driver, "Driver not open"
+        if not self.driver:
+            raise SeleniumCanvasDriver.DriverNotOpenError("Driver not open. Call open() first.")
+        # For type-checkers
+        assert self.driver is not None
         el = self._find(selector)
         rect = el.rect  # css pixels
         off = normalized_to_element_offsets(
@@ -95,7 +104,7 @@ class SeleniumCanvasDriver:
         self,
         selector: str,
         provider_text: str,
-        fallback_space: str,
+        fallback_space: CoordSpace,
         src_frame: Optional[Frame],
     ) -> Dict:
         data = extract_json_object(provider_text)
@@ -105,6 +114,10 @@ class SeleniumCanvasDriver:
         else:
             norm = coerce_provider_coords(data, fallback_space=fallback_space,
                                           src_w=None, src_h=None)
+        if not self.driver:
+            raise SeleniumCanvasDriver.DriverNotOpenError("Driver not open. Call open() first.")
+        # For type-checkers
+        assert self.driver is not None
         el = self._find(selector)
         rect = el.rect
         png_bytes = el.screenshot_as_png

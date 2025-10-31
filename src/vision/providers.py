@@ -53,6 +53,26 @@ def _build_messages(user_prompt: str, image_data_url: str) -> List[Dict[str, Any
         },
     ]
 
+def _resolve_provider(provider: str) -> Tuple[str, str]:
+    """Return (base_url, api_key) for a supported provider.
+
+    Raises RuntimeError when API keys are missing and NotImplementedError for unknown providers.
+    """
+    p = (provider or "none").lower()
+    if p == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY not set")
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com")
+        return base_url, api_key
+    if p == "zai":
+        api_key = os.getenv("ZAI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("ZAI_API_KEY not set")
+        base_url = os.getenv("ZAI_BASE_URL", "https://api.bigmodel.org")
+        return base_url, api_key
+    raise NotImplementedError(f"Provider '{provider}' not implemented yet")
+
 def _post_chat_completions(
     base_url: str,
     api_key: str,
@@ -72,11 +92,14 @@ def _post_chat_completions(
         # Keep responses deterministic-ish to reduce prose risk
         "temperature": 0.2,
     }
-    # GPT-5 models use max_completion_tokens, older models use max_tokens
+    # Token limits configurable via env with sensible defaults.
+    # GPT-5/o3/o4 models use max_completion_tokens; older models use max_tokens.
+    max_comp = int(os.getenv("VISION_MAX_COMPLETION_TOKENS", os.getenv("MAX_COMPLETION_TOKENS", "300")))
+    max_tok = int(os.getenv("VISION_MAX_TOKENS", os.getenv("MAX_TOKENS", "300")))
     if model.startswith("gpt-5") or model.startswith("o3") or model.startswith("o4"):
-        payload["max_completion_tokens"] = 300
+        payload["max_completion_tokens"] = max_comp
     else:
-        payload["max_tokens"] = 300
+        payload["max_tokens"] = max_tok
     resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
     if resp.status_code != 200:
         raise RuntimeError(f"Provider HTTP {resp.status_code}: {resp.text[:200]}")
@@ -90,8 +113,9 @@ def _post_chat_completions(
 def analyze_image(image_bytes: bytes, provider: str, model: str) -> str:
     provider = (provider or "none").lower()
     # Disallow expensive "pro" variants per project policy
-    if model and isinstance(model, str) and "pro" in model.lower():
-        raise RuntimeError("Model variants with '-pro' are disabled by policy. Use gpt-5 or gpt-5-mini (or nano).")
+    allow_pro = os.getenv("VISION_ALLOW_PRO_MODELS", "false").lower() in ("1", "true", "yes")
+    if (model and isinstance(model, str) and "pro" in model.lower()) and not allow_pro:
+        raise RuntimeError("Model variants with '-pro' are disabled by policy. Set VISION_ALLOW_PRO_MODELS=true to override.")
     if provider == "none":
         # Return a center prediction in strict JSON for smoke tests.
         return json.dumps({"version":"1.0","coords":{"space":"normalized","x":0.5,"y":0.5},"why":"center","confidence":0.1})
@@ -101,19 +125,8 @@ def analyze_image(image_bytes: bytes, provider: str, model: str) -> str:
     user_prompt = USER_PROMPT_EXAMPLE
     messages = _build_messages(user_prompt, img_url)
 
-    # Provider routing
-    if provider == "openai":
-        api_key = os.getenv("OPENAI_API_KEY", "").strip()
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY not set")
-        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com")
-    elif provider == "zai":
-        api_key = os.getenv("ZAI_API_KEY", "").strip()
-        if not api_key:
-            raise RuntimeError("ZAI_API_KEY not set")
-        base_url = os.getenv("ZAI_BASE_URL", "https://api.bigmodel.org")
-    else:
-        raise NotImplementedError(f"Provider '{provider}' not implemented yet")
+    # Provider routing (factored into helper)
+    base_url, api_key = _resolve_provider(provider)
 
     # First attempt
     text, raw = _post_chat_completions(base_url, api_key, model, messages)

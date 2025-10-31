@@ -1,14 +1,18 @@
 from __future__ import annotations
-import os, io, time
+
+import io
+import os
+import time
 from typing import List
 from dotenv import load_dotenv
 from PIL import Image
 
 from src.drivers.browser_selenium import SeleniumCanvasDriver
-from src.vision.normalizer import extract_json_object, coerce_provider_coords, normalized_to_element_offsets, Frame
+from src.vision.normalizer import extract_json_object, Frame
 from src.vision import providers
 
-def run(pages: List[str], selector: str, center_only: bool = False):
+
+def run(pages: List[str], selector: str, center_only: bool = False) -> None:
     load_dotenv()
     provider = os.getenv("VISION_PROVIDER", "none")
     model = os.getenv("VISION_MODEL", "gpt-5-vision")
@@ -38,22 +42,36 @@ def run(pages: List[str], selector: str, center_only: bool = False):
             space = (data.get("coords") or data).get("space", "normalized")
             frame = Frame(w=pw, h=ph, space="pixel") if space == "pixel" else None
             # The selenium click helper re-screenshots to compute CSS offsets safely
-            info = drv.click_from_provider_json(selector, raw_text, fallback_space="normalized", src_frame=frame)
+            info = drv.click_from_provider_json(
+                selector, raw_text, fallback_space="normalized", src_frame=frame
+            )
             print("CLICK:", info["explain"])
 
     finally:
         drv.close()
 
+
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Browser UI automation demo with vision providers")
-    parser.add_argument("--pages", type=str, default="https://example.com,https://news.ycombinator.com",
-                        help="Comma-separated list of URLs to visit")
-    parser.add_argument("--selector", type=str, default="body",
-                        help="CSS selector for the element to interact with")
-    parser.add_argument("--center-only", action="store_true",
-                        help="Use center-only clicks without calling vision provider")
+
+    parser = argparse.ArgumentParser(
+        description="Browser UI automation demo with vision providers"
+    )
+    parser.add_argument(
+        "--pages",
+        type=str,
+        default="https://example.com,https://news.ycombinator.com",
+        help="Comma-separated list of URLs to visit",
+    )
+    parser.add_argument(
+        "--selector", type=str, default="body", help="CSS selector for the element to interact with"
+    )
+    parser.add_argument(
+        "--center-only",
+        action="store_true",
+        help="Use center-only clicks without calling vision provider",
+    )
     args = parser.parse_args()
-    
+
     pages = [p.strip() for p in args.pages.split(",") if p.strip()]
     run(pages, selector=args.selector, center_only=args.center_only)

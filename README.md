@@ -79,5 +79,29 @@ See: `src/vision/normalizer.py` and `src/drivers/browser_selenium.py`.
    - Or use Safety: `pip install safety && safety check`
 - Tests: run `pytest -q` to validate JSON extraction and normalization helpers.
 
+---
+
+## Agent demo (experimental)
+
+A minimal agent loops: observe (screenshot) → decide (vision picks normalized x,y) → act (click).
+
+- Run with no external provider (uses a center-only stub):
+
+```bash
+python -m src.demos.agent_demo --start "https://example.com" --goal "Open the main link" --provider none --max-steps 2
+```
+
+- Run with a real provider (requires env like `OPENAI_API_KEY`, and optional `OPENAI_BASE_URL`):
+
+```bash
+# Example using OpenAI-compatible endpoints (ensure your key/env are set)
+python -m src.demos.agent_demo --start "https://news.ycombinator.com" --goal "Open the first story" --provider openai --model gpt-5-vision --max-steps 3
+```
+
+Notes:
+- The agent confines clicks to the given CSS `--selector` (defaults to `body`).
+- The model is instructed to return strict JSON with normalized coordinates.
+- This is intentionally small and safe; extend with scroll/type/navigation actions as needed.
+
 ## License
 MIT for this scaffold. Your model/API licenses apply for providers.

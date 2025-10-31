@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import io
 import time
 from dataclasses import dataclass
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, Any
 
 from PIL import Image
 from selenium import webdriver
@@ -11,9 +12,14 @@ from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 
 from src.vision.normalizer import (
-    Frame, to_normalized, normalized_to_element_offsets,
-    coerce_provider_coords, extract_json_object, explain_offsets, CoordSpace
+    Frame,
+    normalized_to_element_offsets,
+    coerce_provider_coords,
+    extract_json_object,
+    explain_offsets,
+    CoordSpace,
 )
+
 
 @dataclass
 class ElementRect:
@@ -21,6 +27,7 @@ class ElementRect:
     y: float
     width: float
     height: float
+
 
 class SeleniumCanvasDriver:
     def __init__(self, browser: str = "chrome"):
@@ -31,13 +38,14 @@ class SeleniumCanvasDriver:
     class DriverNotOpenError(RuntimeError):
         pass
 
-    def open(self, start_url: Optional[str] = None):
+    def open(self, start_url: Optional[str] = None) -> None:
         if self.browser != "chrome":
             raise NotImplementedError("Only Chrome is wired by default; extend as needed.")
         options = webdriver.ChromeOptions()
         options.add_argument("--disable-gpu")
         options.add_argument("--force-device-scale-factor=1")
         from selenium.webdriver.chrome.service import Service
+
         service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=options)
         self.driver.set_window_size(1280, 900)
@@ -45,18 +53,18 @@ class SeleniumCanvasDriver:
             self.driver.get(start_url)
             time.sleep(0.8)
 
-    def close(self):
+    def close(self) -> None:
         if self.driver:
             self.driver.quit()
             self.driver = None
 
-    def goto(self, url: str):
+    def goto(self, url: str) -> None:
         if not self.driver:
             raise SeleniumCanvasDriver.DriverNotOpenError("Driver not open. Call open() first.")
         self.driver.get(url)
         time.sleep(0.5)
 
-    def _find(self, selector: str):
+    def _find(self, selector: str) -> Any:
         if not self.driver:
             raise SeleniumCanvasDriver.DriverNotOpenError("Driver not open. Call open() first.")
         return self.driver.find_element(By.CSS_SELECTOR, selector)
@@ -68,14 +76,16 @@ class SeleniumCanvasDriver:
 
     def element_png(self, selector: str) -> bytes:
         el = self._find(selector)
-        return el.screenshot_as_png
+        return el.screenshot_as_png  # type: ignore[no-any-return]
 
     @staticmethod
     def png_size(png_bytes: bytes) -> Tuple[int, int]:
         with Image.open(io.BytesIO(png_bytes)) as im:
-            return im.size  # (w, h)
+            return im.size  # type: ignore[no-any-return] (w, h)
 
-    def click_normalized(self, selector: str, nx: float, ny: float, png_w: int, png_h: int) -> Dict:
+    def click_normalized(
+        self, selector: str, nx: float, ny: float, png_w: int, png_h: int
+    ) -> Dict[str, Any]:
         if not self.driver:
             raise SeleniumCanvasDriver.DriverNotOpenError("Driver not open. Call open() first.")
         # For type-checkers
@@ -83,15 +93,15 @@ class SeleniumCanvasDriver:
         el = self._find(selector)
         rect = el.rect  # css pixels
         off = normalized_to_element_offsets(
-            nx, ny,
-            png_w=png_w, png_h=png_h,
-            css_w=rect["width"], css_h=rect["height"]
+            nx, ny, png_w=png_w, png_h=png_h, css_w=rect["width"], css_h=rect["height"]
         )
         # Selenium's move_to_element_with_offset uses offsets from element CENTER, not top-left
         # So we need to adjust: offset_from_center = offset_from_topleft - (width/2, height/2)
         center_off_x = off.off_x - int(rect["width"] / 2)
         center_off_y = off.off_y - int(rect["height"] / 2)
-        ActionChains(self.driver).move_to_element_with_offset(el, center_off_x, center_off_y).click().perform()
+        ActionChains(self.driver).move_to_element_with_offset(
+            el, center_off_x, center_off_y
+        ).click().perform()
         return {
             "selector": selector,
             "rect": rect,
@@ -106,14 +116,16 @@ class SeleniumCanvasDriver:
         provider_text: str,
         fallback_space: CoordSpace,
         src_frame: Optional[Frame],
-    ) -> Dict:
+    ) -> Dict[str, Any]:
         data = extract_json_object(provider_text)
         if src_frame and src_frame.space == "pixel":
-            norm = coerce_provider_coords(data, fallback_space=fallback_space,
-                                          src_w=src_frame.w, src_h=src_frame.h)
+            norm = coerce_provider_coords(
+                data, fallback_space=fallback_space, src_w=src_frame.w, src_h=src_frame.h
+            )
         else:
-            norm = coerce_provider_coords(data, fallback_space=fallback_space,
-                                          src_w=None, src_h=None)
+            norm = coerce_provider_coords(
+                data, fallback_space=fallback_space, src_w=None, src_h=None
+            )
         if not self.driver:
             raise SeleniumCanvasDriver.DriverNotOpenError("Driver not open. Call open() first.")
         # For type-checkers
@@ -122,11 +134,15 @@ class SeleniumCanvasDriver:
         rect = el.rect
         png_bytes = el.screenshot_as_png
         png_w, png_h = self.png_size(png_bytes)
-        off = normalized_to_element_offsets(norm.nx, norm.ny, png_w, png_h, rect["width"], rect["height"])
+        off = normalized_to_element_offsets(
+            norm.nx, norm.ny, png_w, png_h, rect["width"], rect["height"]
+        )
         # Selenium's move_to_element_with_offset uses offsets from element CENTER, not top-left
         center_off_x = off.off_x - int(rect["width"] / 2)
         center_off_y = off.off_y - int(rect["height"] / 2)
-        ActionChains(self.driver).move_to_element_with_offset(el, center_off_x, center_off_y).click().perform()
+        ActionChains(self.driver).move_to_element_with_offset(
+            el, center_off_x, center_off_y
+        ).click().perform()
         return {
             "selector": selector,
             "rect": rect,
@@ -135,6 +151,7 @@ class SeleniumCanvasDriver:
             "normalized": (norm.nx, norm.ny),
             "explain": explain_offsets(off),
         }
+
 
 if __name__ == "__main__":
     drv = SeleniumCanvasDriver()

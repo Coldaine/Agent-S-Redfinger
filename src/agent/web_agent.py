@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 import re
 
 from PIL import Image
@@ -21,7 +21,7 @@ from src.agent.session_manager import SessionManager, SessionConfig
 @dataclass
 class AgentConfig:
     provider: str = "none"  # "openai", "zai", or "none" for center-only model
-    model: str = "gpt-5-vision"
+    model: str = os.getenv("VISION_MODEL", "gpt-5-mini")
     selector: str = "body"
     max_steps: int = 3
     step_delay_s: float = 1.2
@@ -54,6 +54,11 @@ class VisionWebAgent:
         if cfg.profile_dir and not self.profile_dir:
             self.drv = SeleniumCanvasDriver(profile_dir=cfg.profile_dir)
         
+        # Allow keeping the browser open after automation via env toggle
+        # or a future cfg flag (not yet in AgentConfig to avoid breaking changes).
+        if os.getenv("AGENT_KEEP_BROWSER_OPEN", "").lower() in {"1", "true", "yes"}:
+            self.drv.set_keep_alive(True)
+        
         # Setup logging directory
         log_dir = None
         if cfg.log_dir:
@@ -68,8 +73,20 @@ class VisionWebAgent:
             if cfg.profile_dir:
                 print(f"🔐 CHROME PROFILE: {cfg.profile_dir}")
             print(f"{'='*80}\n")
-        
-        self.drv.open(start_url)
+        # Open or reuse an existing browser session
+        created_driver_here = False
+        if getattr(self.drv, "driver", None):
+            if start_url:
+                try:
+                    self.drv.goto(start_url)
+                except Exception:
+                    # If reuse fails, fall back to reopen
+                    self.drv.close()
+                    self.drv.open(start_url)
+                    created_driver_here = True
+        else:
+            self.drv.open(start_url)
+            created_driver_here = True
         
         # Log initial page state
         if log_dir:
@@ -205,7 +222,11 @@ class VisionWebAgent:
             
             return log
         finally:
-            self.drv.close()
+            # Only close the driver if we created it in this call
+            # This prevents detaching mid-run when a higher-level orchestrator
+            # is managing a single session across multiple run() calls.
+            if created_driver_here:
+                self.drv.close()
 
     def _dom_keyword_click(self, selector: str, goal: str) -> Dict[str, Any]:
         """Fallback: click an anchor within the selector using simple keyword matching.
@@ -372,6 +393,9 @@ class VisionWebAgent:
                     print(f"🤝 HANDOVER: After step {handover_after_steps}")
             print(f"{'='*80}\n")
         
+        # If we will handover at any point (including after completion), ensure keep-alive is set
+        if handover_after_steps is not None:
+            self.drv.set_keep_alive(True)
         self.drv.open(start_url)
         
         # Initialize session manager

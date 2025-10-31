@@ -51,10 +51,37 @@ class SeleniumCanvasDriver:
         options.add_argument("--disable-gpu")
         options.add_argument("--force-device-scale-factor=1")
         
-        # Add Chrome profile support
+        # If we plan to keep the browser open for human use after automation,
+        # tell ChromeDriver to detach so Chrome stays open even if the driver exits.
+        # This can be toggled either via set_keep_alive(True) before open(), or
+        # via an env var AGENT_KEEP_BROWSER_OPEN=1/true/yes.
+        keep_env = (os.getenv("AGENT_KEEP_BROWSER_OPEN", "").lower() in {"1", "true", "yes"})
+        if self._keep_alive or keep_env:
+            try:
+                options.add_experimental_option("detach", True)
+                # Disable automation banner for a cleaner handover UI
+                options.add_experimental_option("excludeSwitches", ["enable-automation"])
+                options.add_experimental_option("useAutomationExtension", False)
+            except Exception as e:
+                print(f"Warning: Could not set Chrome detach option: {e}")
+        
+        # Add Chrome profile support (robust handling of user-data-dir and profile-directory)
         if self.profile_dir:
+            eff = self.profile_dir.rstrip("\\/")
+            base = os.path.basename(eff)
+            parent = os.path.dirname(eff)
             print(f"🔐 Using Chrome profile: {self.profile_dir}")
-            options.add_argument(f"user-data-dir={self.profile_dir}")
+            try:
+                # If a known profile subdirectory was provided (e.g., Default, Profile 1, AgentProfile)
+                if base.lower() in {"default", "profile 1", "profile 2", "profile 3", "agentprofile"}:
+                    # Point user-data-dir at the parent folder and select specific profile
+                    options.add_argument(f"--user-data-dir={parent}")
+                    options.add_argument(f"--profile-directory={base}")
+                else:
+                    # Treat provided path as the user data root
+                    options.add_argument(f"--user-data-dir={eff}")
+            except Exception as e:
+                print(f"Warning: Could not apply Chrome profile options: {e}")
         
         from selenium.webdriver.chrome.service import Service
 
@@ -67,6 +94,15 @@ class SeleniumCanvasDriver:
 
     def close(self) -> None:
         if self.driver:
+            if self._keep_alive or (os.getenv("AGENT_KEEP_BROWSER_OPEN", "").lower() in {"1", "true", "yes"}):
+                # Leave the browser open for human control; just drop our handle
+                print("🛑 Not closing Chrome (keep-open enabled). Browser remains available for you.")
+                try:
+                    self.remove_human_activity_monitors()
+                except Exception:
+                    pass
+                self.driver = None
+                return
             self.driver.quit()
             self.driver = None
 
@@ -164,15 +200,7 @@ class SeleniumCanvasDriver:
             "explain": explain_offsets(off),
         }
 
-
-if __name__ == "__main__":
-    drv = SeleniumCanvasDriver()
-    try:
-        drv.open("https://example.com")
-        selector = "body"
-        png = drv.element_png(selector)
-        pw, ph = drv.png_size(png)
-        info = drv.click_normalized(selector, 0.5, 0.5, png_w=pw, png_h=ph)
+    # New methods for session handover support
     def set_keep_alive(self, keep_alive: bool = True) -> None:
         """
         Set whether to keep browser alive after script completion.
@@ -445,6 +473,16 @@ if __name__ == "__main__":
                 print(f"Warning: Could not save screenshot to {filename}: {e}")
         
         return screenshot
+
+
+if __name__ == "__main__":
+    drv = SeleniumCanvasDriver()
+    try:
+        drv.open("https://example.com")
+        selector = "body"
+        png = drv.element_png(selector)
+        pw, ph = drv.png_size(png)
+        info = drv.click_normalized(selector, 0.5, 0.5, png_w=pw, png_h=ph)
         print("Clicked:", info["explain"])
         time.sleep(0.5)
     finally:

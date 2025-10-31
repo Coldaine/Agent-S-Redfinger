@@ -1,4 +1,4 @@
-# Python
+## Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -19,32 +19,80 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pdm.toml
+.pdm-python/
+.python-version
 
-# Virtual environments
+## Virtual environments
 .venv/
 venv/
 ENV/
 env/
+.envrc
 
-# Environment variables
+## Environment variables & secrets
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.der
 
-# IDE
+## Editors/IDEs
 .vscode/
 .idea/
+.fleet/
+.history/
 *.swp
 *.swo
 *~
+.claude/
 
-# OS
+## OS
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# Logs
+## Logs
+logs/
 *.log
+junit-*.xml
 
-# Screenshots
+## Screenshots and media (scoped)
 screenshots/
-*.png
-*.jpg
-*.jpeg
+screenshots/**
+
+## Caches and tooling
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.pylint.d/
+.pyre/
+.pytype/
+.nox/
+.tox/
+.hypothesis/
+.ipynb_checkpoints/
+__pypackages__/
+
+## Coverage reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+## Chrome profiles and local browser data (large, machine-specific)
+chrome_profiles/**
+
+## Misc temporary files
+pip-log.txt
+pip-delete-this-directory.txt
+*.tmp
+*.temp
+*.bak
+*.orig

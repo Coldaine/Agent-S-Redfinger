@@ -1,4 +1,6 @@
-# Agent-S-Redfinger Project Context
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
@@ -6,9 +8,9 @@
 
 **Architecture**: Docker-based Ubuntu container running Agent S3 with virtual display, controlling web browser that interfaces with Redfinger's cloud Android emulator
 
-**Status**: Implementation complete, ready for validation testing
+**Status**: Validation testing in progress (see docs/VALIDATION_STATUS.md)
 
-**Repository**: C:\Agent-S-Redfinger (forked from simular-ai/Agent-S)
+**Repository**: Forked from simular-ai/Agent-S
 
 ---
 
@@ -17,7 +19,7 @@
 ### The Stack (4 Layers)
 
 ```
-Layer 1: Windows Host (Your PC)
+Layer 1: Windows Host
     ↓
 Layer 2: Docker Container (Ubuntu 22.04)
     ↓ Xvfb virtual display (:99 at 1920x1080)
@@ -30,22 +32,9 @@ Layer 3: Redfinger Web UI (in browser)
 Layer 4: Android VM (in Redfinger cloud)
 ```
 
-### Why This Architecture?
+**Key Insight**: Agent S3 assumes it controls the entire screen. Running in a Docker container with virtual display makes this assumption true. The browser runs full-screen at (0,0), so PyAutoGUI coordinates match browser coordinates perfectly with NO coordinate translation needed.
 
-**Previous Failed Approach** (C:\AgentS3SecondTry):
-- Tried to use Agent-S as a library on Windows
-- Browser window at unknown screen position
-- Required complex coordinate translation
-- Window focus issues
-
-**Current Correct Approach**:
-- Agent S3 runs INSIDE Docker container with virtual display
-- Browser runs full-screen at (0,0) in container
-- PyAutoGUI coordinates match browser coordinates perfectly
-- NO coordinate translation needed
-- This is how Agent S3 was designed for OSWorld benchmark
-
-**Key Insight**: Agent S3 assumes it controls the entire screen. Running in a Docker container with virtual display makes this assumption true.
+**Previous Failed Approach**: Tried to use Agent-S as a library on Windows with browser window at unknown screen position, requiring complex coordinate translation. Current approach uses Docker container as originally designed for OSWorld benchmark.
 
 ---
 
@@ -53,17 +42,9 @@ Layer 4: Android VM (in Redfinger cloud)
 
 ### 1. BOTH Models MUST Be Vision-Capable
 
-**Source Code Evidence**:
-```python
-# gui_agents/s3/agents/worker.py:345
-self.generator_agent.add_message(
-    generator_message,
-    image_content=obs["screenshot"],  # ← Reasoner gets RAW images!
-    role="user"
-)
-```
+**Source**: `gui_agents/s3/agents/worker.py:345` - Both reasoner and grounding agents receive raw images
 
-**Architecture**:
+**Architecture Flow**:
 ```
 Screenshot → Reasoner (vision) → Strategic Plan
 Screenshot + Plan → Grounding (vision) → Pixel Coordinates
@@ -72,8 +53,8 @@ Coordinates → PyAutoGUI → Click Execution
 
 **Valid Vision Models**:
 - ✅ glm-4.5v (ZAI, proven working)
-- ✅ gpt-5-2025-08-07 (OpenAI, untested here)
-- ✅ gpt-5-mini-2025-08-07 (OpenAI, untested here)
+- ✅ gpt-5-2025-08-07 (OpenAI)
+- ✅ gpt-5-mini-2025-08-07 (OpenAI)
 - ❌ glm-4.6 (text-only, will fail with error 1210)
 - ❌ gpt-4-turbo (text-only)
 
@@ -86,33 +67,177 @@ Coordinates → PyAutoGUI → Click Execution
 
 **Critical**: No manual coordinate translation! Browser top-left IS screen origin (0,0).
 
-### 3. Current API Configuration
+### 3. API Configuration
 
-Located in `.env`:
+Located in `.env` (copy from `.env.example`):
 
+**Current Working Configuration** (last verified 2025-10-26):
 ```env
-# Working configuration (last verified 2025-10-26)
 REASONER_PROVIDER=zai
 REASONER_MODEL=glm-4.5v      # Vision-capable
 VISION_PROVIDER=zai
 VISION_MODEL=glm-4.5v        # Vision-capable
 
-ZAI_API_KEY=2c21c2eed1fa44e7834a6113aeb832a5.i0i3LQY4p00w19xe
+ZAI_API_KEY=<your_key>
 ZAI_BASE_URL=https://api.z.ai/api/coding/paas/v4
-
-# Fallback (untested in this setup)
-OPENAI_API_KEY=sk-proj-[...]
 ```
 
-**Credential Status**:
-- ZAI: Last working 2025-10-26 (preferred)
-- OpenAI: Needs verification
+**Alternative (OpenAI GPT-5)**:
+```env
+REASONER_PROVIDER=openai
+REASONER_MODEL=gpt-5-2025-08-07
+VISION_PROVIDER=openai
+VISION_MODEL=gpt-5-2025-08-07
+OPENAI_API_KEY=<your_key>
+```
+
+---
+
+## Essential Commands
+
+### Docker Operations
+
+```bash
+# Build Docker image (first time, 5-10 min)
+docker-compose build
+
+# Rebuild without cache (if dependencies changed)
+docker-compose build --no-cache
+
+# Run task automation (uses .env configuration)
+docker-compose up agent-redfinger
+
+# Run with specific task override
+docker-compose run --rm agent-redfinger python3 /workspace/redfinger/run_redfinger.py \
+  --url "https://www.cloudemulator.net/app/phone?channelCode=web" \
+  --task "Click on the Google search box" \
+  --max-steps 10
+
+# Interactive debugging (enter container)
+docker-compose run --rm agent-redfinger bash
+
+# View logs
+docker-compose logs -f agent-redfinger
+
+# Stop and clean up
+docker-compose down
+```
+
+### Validation Testing (Phase 5 Harness)
+
+The Phase 5 harness provides robust testing with timeout protection, real-time logging, and automatic validation report generation.
+
+```powershell
+# Pre-flight check (validates Docker, API keys, etc.)
+python scripts/run_phase5_harness.py --dry-run
+
+# Run Phase 5 test with GPT-5
+python scripts/run_phase5_harness.py \
+  --provider openai \
+  --model gpt-5-2025-08-07 \
+  --model-temperature 1.0 \
+  --url "https://www.google.com" \
+  --task "Click on the search box and type weather" \
+  --max-steps 5 \
+  --overall-timeout 900 \
+  --stall-timeout 120
+
+# Run Phase 5 test with ZAI GLM-4.5V
+python scripts/run_phase5_harness.py \
+  --provider zai \
+  --model glm-4.5v \
+  --model-temperature 1.0 \
+  --url "https://www.google.com" \
+  --task "Click on the search box" \
+  --max-steps 5
+
+# Hygiene options
+python scripts/run_phase5_harness.py \
+  --auto-start-docker \           # Start Docker Desktop if not running
+  --compose-down-before \          # Clean containers before test
+  --compose-down-after \           # Clean containers after test
+  --compose-build \                # Rebuild image before test
+  --provider openai \
+  --model gpt-5-2025-08-07 \
+  --url "https://www.google.com" \
+  --task "Click search box"
+
+# Generate validation report
+python scripts/generate_validation_report.py
+```
+
+**Harness Features**:
+- Timeout protection (overall + stall detection)
+- Real-time log streaming to files
+- Structured results in JSON
+- Automatic validation report refresh
+- Exit codes: 0 (passed), 1 (failed)
+
+**Test Artifacts** (saved to `logs/phase5/<timestamp>/`):
+- `stdout.log` - Container output
+- `stderr.log` - Error messages
+- `meta.json` - Test configuration
+- `result.json` - Test results and status
+
+### Development Workflow
+
+```bash
+# ALWAYS work on feature branches (NEVER commit directly to main)
+git checkout -b feature/your-feature-name
+
+# Make changes, update CHANGELOG.md
+
+# Run pre-commit checks
+python scripts/pre_commit_check.py
+
+# Commit with descriptive message
+git commit -m "feat: add new feature"
+
+# Push and open PR
+git push origin feature/your-feature-name
+```
+
+**Required for ALL PRs**:
+1. Feature branch (never commit to main)
+2. Update CHANGELOG.md
+3. Pass pre-flight checks
+4. Get review approval
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full workflow details.
+
+### Container Diagnostics
+
+```bash
+# Inside container (after: docker-compose run --rm agent-redfinger bash)
+
+# Check display
+xdpyinfo -display :99 | grep dimensions  # Should show 1920x1080
+
+# Check PyAutoGUI screen size
+python3 -c "import pyautogui; print(pyautogui.size())"  # Should show Size(width=1920, height=1080)
+
+# Check Agent S3 imports
+python3 -c "from gui_agents.s3.agents.agent_s import AgentS3; print('OK')"
+
+# Check browser
+chromium-browser --version
+
+# Test API keys
+python3 -c "import os; print(os.getenv('OPENAI_API_KEY')[:10])"
+```
+
+### VNC Debugging
+
+Connect via VNC Viewer to `localhost:5900` (no password) to watch the agent live. Enable in `.env`:
+```env
+ENABLE_VNC=true
+```
 
 ---
 
 ## File Structure
 
-### Essential Files
+### Core Implementation Files
 
 **Docker Infrastructure**:
 - `docker/Dockerfile.redfinger` - Ubuntu 22.04 with GUI stack
@@ -120,49 +245,37 @@ OPENAI_API_KEY=sk-proj-[...]
 - `docker-compose.yml` - Orchestration config
 
 **Application Code**:
-- `redfinger/run_redfinger.py` - Main task runner (119 lines)
-- `gui_agents/s3/` - Agent S3 implementation (from upstream)
+- `redfinger/run_redfinger.py` - Main task runner (159 lines)
+  - Uses Playwright to launch browser
+  - Integrates Agent S3
+  - Executes agent actions via PyAutoGUI
+  - Emits `HARNESS:STATUS=passed/failed` for test harness
+
+**Agent S3 Implementation** (from upstream):
+- `gui_agents/s3/agents/agent_s.py` - Main agent loop
+- `gui_agents/s3/agents/worker.py` - Reasoner (strategic planning)
+- `gui_agents/s3/agents/grounding.py` - Grounding (pixel coordinates)
+- `gui_agents/s3/cli_app.py` - CLI reference implementation
+
+**Testing Infrastructure**:
+- `scripts/run_phase5_harness.py` - Robust test harness with timeouts
+- `scripts/generate_validation_report.py` - Generate validation status report
+- `scripts/pre_commit_check.py` - Pre-commit validation checks
+- `scripts/setup_git_workflow.py` - Git workflow setup
 
 **Configuration**:
-- `.env` - Active config with credentials
+- `.env` - Active config with credentials (NOT in git)
 - `.env.example` - Template for new setups
-- `requirements.txt` - Python dependencies (includes playwright)
+- `requirements.txt` - Python dependencies
 
 **Documentation**:
-- `docs/GO_FORWARD_PLAN.md` - Architecture rationale (16.9 KB)
-- `docs/handoffs/11AM.md` - Implementation status handoff (12 KB)
-- `docs/VALIDATION_PLAN_DETAILED.md` - Step-by-step testing guide
-- `.claude/CLAUDE.md` - This file
-
-### Key Directories
-
-- `gui_agents/s3/` - Agent S3 core implementation
-- `logs/` - Application logs (currently empty)
-- `evaluation_sets/` - OSWorld test datasets
-- `docker/` - Docker configuration files
-- `redfinger/` - Redfinger-specific code
-
----
-
-## Current State
-
-### Completed ✅
-1. Docker infrastructure (Dockerfile, entrypoint, compose)
-2. Agent S3 integration (run_redfinger.py)
-3. Configuration files (.env, .env.example)
-4. Dependencies installed (requirements.txt)
-5. Documentation complete
-
-### Not Yet Done ⏳
-1. Docker image build
-2. Validation testing (6 test phases)
-3. Redfinger login automation verification
-4. Full task execution test
-
-### Git Status
-- Branch: main
-- Modified: requirements.txt (added playwright)
-- Untracked: .env.example, docker-compose.yml, docker/, docs/, redfinger/
+- `README.md` - Project overview and quickstart
+- `CONTRIBUTING.md` - Git workflow and contribution guidelines
+- `CHANGELOG.md` - Version history and changes
+- `docs/VALIDATION_STATUS.md` - Auto-generated test results
+- `docs/VALIDATION_PLAN_DETAILED.md` - Step-by-step testing procedures
+- `docs/TROUBLESHOOTING_GUIDE.md` - Common issues and solutions
+- `docs/GIT_WORKFLOW_QUICK_REFERENCE.md` - Git workflow cheatsheet
 
 ---
 
@@ -171,109 +284,41 @@ OPENAI_API_KEY=sk-proj-[...]
 ### Pitfall 1: Using Text-Only Models
 **Symptom**: Error 1210 or "model does not support images"
 **Cause**: glm-4.6 or other text-only model
-**Solution**: Use glm-4.5v or gpt-5 models
+**Solution**: Use glm-4.5v, gpt-5-2025-08-07, or gpt-5-mini-2025-08-07
 
 ### Pitfall 2: Coordinate Misalignment
 **Symptom**: Clicks miss targets
 **Cause**: Display not 1920x1080 or browser not full-screen
-**Solution**: Verify with `xdpyinfo` and `pyautogui.size()`
+**Solution**: Verify with `xdpyinfo` and `pyautogui.size()` inside container
 
 ### Pitfall 3: API Authentication Failures
 **Symptom**: 401 Unauthorized
 **Cause**: Invalid or expired API keys
-**Solution**: Test with curl/requests, rotate keys if needed
+**Solution**: Verify keys in `.env`, test with harness `--dry-run`
 
 ### Pitfall 4: Container Won't Start
 **Symptom**: Immediate exit
 **Cause**: Display initialization failure
-**Solution**: Check entrypoint logs, rebuild with --no-cache
+**Solution**: Check logs with `docker-compose logs`, rebuild with `--no-cache`
 
 ### Pitfall 5: Agent Does Nothing
 **Symptom**: Takes screenshot but no actions
 **Cause**: Model not generating valid Python code
-**Solution**: Check model output in logs, verify task description clarity
+**Solution**: Check logs, verify task description clarity, ensure vision-capable model
+
+### Pitfall 6: Test Hangs Forever
+**Symptom**: Harness never completes
+**Cause**: Agent stuck in loop or waiting indefinitely
+**Solution**: Use harness timeouts: `--overall-timeout 900 --stall-timeout 120`
+
+### Pitfall 7: Committing to Main Branch
+**Symptom**: Direct commits to main
+**Cause**: Bypassing feature branch workflow
+**Solution**: ALWAYS create feature branch first, open PR for review
 
 ---
 
-## Quick Start Commands
-
-```bash
-# Navigate to project
-cd C:\Agent-S-Redfinger
-
-# Build Docker image (first time, takes 5-10 min)
-docker-compose build
-
-# Test container launch
-docker-compose run --rm agent-redfinger bash
-
-# Test PyAutoGUI screen size
-docker-compose run --rm agent-redfinger python3 -c "import pyautogui; print(pyautogui.size())"
-
-# Test Agent S3 imports
-docker-compose run --rm agent-redfinger python3 -c "from gui_agents.s3.agents.agent_s import AgentS3; print('OK')"
-
-# Run full automation
-docker-compose up agent-redfinger
-
-# View logs
-docker-compose logs -f agent-redfinger
-
-# Stop container
-docker-compose down
-
-# Connect VNC (watch agent live)
-# VNC Viewer → localhost:5900 (no password)
-```
-
----
-
-## Validation Testing Procedure
-
-**Follow this order** (see `docs/VALIDATION_PLAN_DETAILED.md` for full details):
-
-1. **Phase 1**: Build Docker image (30 min)
-2. **Phase 2**: Container validation tests (45 min)
-   - Container launch
-   - Virtual display check
-   - PyAutoGUI screen size
-   - Agent S3 imports
-   - Browser launch
-3. **Phase 3**: API key validation (15 min)
-4. **Phase 4**: Simple functionality tests (30 min)
-5. **Phase 5**: Full integration test (45 min)
-6. **Phase 6**: Redfinger-specific testing (30 min)
-
-**Total Time**: 3-4 hours
-
----
-
-## Debugging Tools
-
-### 1. VNC Server (Real-Time Viewing)
-- Enabled by default (`ENABLE_VNC=true` in .env)
-- Connect: `localhost:5900` (no password)
-- See exactly what agent sees and does
-
-### 2. Log Files
-- Container logs: `docker-compose logs agent-redfinger`
-- Application logs: `logs/` directory
-- Docker Desktop logs if container won't start
-
-### 3. Interactive Shell
-```bash
-# Enter container for debugging
-docker-compose run --rm agent-redfinger bash
-
-# Inside container:
-xdpyinfo -display :99          # Check display
-python3 -c "import pyautogui; print(pyautogui.size())"  # Check PyAutoGUI
-chromium-browser --version     # Check browser
-```
-
----
-
-## Model Configuration Reference
+## Model Configuration Examples
 
 ### Current Setup (ZAI)
 ```env
@@ -281,26 +326,26 @@ REASONER_PROVIDER=zai
 REASONER_MODEL=glm-4.5v
 VISION_PROVIDER=zai
 VISION_MODEL=glm-4.5v
-ZAI_API_KEY=2c21c2eed1fa44e7834a6113aeb832a5.i0i3LQY4p00w19xe
+ZAI_API_KEY=<your_key>
 ZAI_BASE_URL=https://api.z.ai/api/coding/paas/v4
 ```
 
-### Alternative Setup (OpenAI GPT-5)
+### Alternative (OpenAI GPT-5)
 ```env
 REASONER_PROVIDER=openai
 REASONER_MODEL=gpt-5-2025-08-07
 VISION_PROVIDER=openai
 VISION_MODEL=gpt-5-2025-08-07
-OPENAI_API_KEY=sk-proj-[...]
+OPENAI_API_KEY=<your_key>
 ```
 
-### Alternative Setup (OpenAI GPT-5 Mini)
+### Alternative (OpenAI GPT-5 Mini)
 ```env
 REASONER_PROVIDER=openai
 REASONER_MODEL=gpt-5-mini-2025-08-07
 VISION_PROVIDER=openai
 VISION_MODEL=gpt-5-mini-2025-08-07
-OPENAI_API_KEY=sk-proj-[...]
+OPENAI_API_KEY=<your_key>
 ```
 
 **Note**: Always keep REASONER and VISION models the same for consistency.
@@ -309,144 +354,137 @@ OPENAI_API_KEY=sk-proj-[...]
 
 ## Task Configuration
 
-Current task (in `.env`):
+Configure tasks in `.env`:
 ```env
 REDFINGER_URL=https://www.cloudemulator.net/app/phone?channelCode=web
-REDFINGER_EMAIL=pmaclyman@gmail.com
-REDFINGER_PASSWORD=Rockstar01!
+REDFINGER_EMAIL=your_email@example.com
+REDFINGER_PASSWORD=your_password
 TASK=Log in to Redfinger and open the settings app
 MAX_STEPS=50
 ```
 
-**Task Format**: Natural language description of what to do
+**Task Format**: Natural language description
 **MAX_STEPS**: Safety limit (agent stops after N iterations)
 
 ---
 
-## When Things Go Wrong
+## Debugging Tools
 
-### If Docker Build Fails
-1. Check Docker Desktop is running
-2. Check internet connection (downloads packages)
-3. Try: `docker system prune -a` then rebuild
+### 1. VNC Server (Real-Time Viewing)
+- Connect: `localhost:5900` (no password)
+- Enable: Set `ENABLE_VNC=true` in `.env`
+- See exactly what agent sees and does
 
-### If Container Exits Immediately
-1. Check logs: `docker-compose logs agent-redfinger`
-2. Look for display initialization errors
-3. Rebuild: `docker-compose build --no-cache`
+### 2. Log Files
+- Container logs: `docker-compose logs agent-redfinger`
+- Application logs: `logs/` directory
+- Test artifacts: `logs/phase5/<timestamp>/`
 
-### If API Calls Fail
-1. Test ZAI API key with curl
-2. Switch to OpenAI as fallback
-3. Check model name is exactly correct
-4. Verify model is vision-capable
+### 3. Interactive Shell
+```bash
+docker-compose run --rm agent-redfinger bash
+# Then run diagnostic commands inside container
+```
 
-### If Clicks Miss Targets
-1. Verify display: `xdpyinfo -display :99 | grep dimensions`
-2. Verify PyAutoGUI: `python3 -c "import pyautogui; print(pyautogui.size())"`
-3. Should both show 1920x1080
-4. If wrong, rebuild container
+### 4. Validation Status
+```powershell
+# View current validation status
+cat docs/VALIDATION_STATUS.md
 
-### If Agent Generates No Actions
-1. Check task description is clear
-2. Check model is receiving screenshots
-3. Review logs for model output
-4. Try simpler task first (e.g., "Click on Google search box")
+# Regenerate validation report
+python scripts/generate_validation_report.py
+```
+
+---
+
+## Git Workflow (IMPORTANT!)
+
+**🚨 All changes must follow this workflow**:
+
+1. **Never commit directly to main** - Always use feature branches
+2. **Update CHANGELOG.md** - Required for every PR
+3. **Run pre-flight checks** - Before pushing
+4. **Open Pull Request** - All changes require review
+5. **Get approval** - Merge only after review
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for complete workflow details.
+
+**Quick Reference**:
+```bash
+# 1. Create feature branch
+git checkout -b feature/your-feature
+
+# 2. Make changes and update CHANGELOG.md
+
+# 3. Run pre-flight checks
+python scripts/pre_commit_check.py
+
+# 4. Commit
+git commit -m "feat: descriptive message"
+
+# 5. Push and open PR
+git push origin feature/your-feature
+```
 
 ---
 
 ## Security Notes
 
 **IMPORTANT**: The `.env` file contains:
-- Valid OpenAI API key
-- Valid ZAI API key
-- Redfinger account credentials (email/password)
+- OpenAI API key
+- ZAI API key
+- Redfinger account credentials
 
 **Actions**:
 - ✅ `.env` is in `.gitignore`
 - ✅ `.env.example` has placeholders
-- ⚠️ Rotate credentials if committed to public repo
+- ⚠️ Rotate credentials if exposed
 
 ---
 
-## Next Steps (After Validation)
+## Common Development Tasks
 
-1. **Document Validation Results**
-   - Which tests passed/failed
-   - Performance observations
-   - Error messages
+### Adding a New Feature
 
-2. **Production Hardening**
-   - Rotate API keys
-   - Set up proper logging
-   - Error recovery mechanisms
-   - Task completion detection
+1. Create feature branch: `git checkout -b feature/new-feature`
+2. Make changes to code
+3. Update CHANGELOG.md under "Unreleased"
+4. Run pre-flight checks: `python scripts/pre_commit_check.py`
+5. Test with harness: `python scripts/run_phase5_harness.py --dry-run`
+6. Commit: `git commit -m "feat: add new feature"`
+7. Push and open PR: `git push origin feature/new-feature`
 
-3. **Advanced Features**
-   - Multiple task execution
-   - Session persistence
-   - Performance optimization
-   - Cost tracking
+### Debugging a Failed Test
 
----
+1. Check validation status: `cat docs/VALIDATION_STATUS.md`
+2. View test artifacts: `logs/phase5/<timestamp>/stdout.log`
+3. Check result: `logs/phase5/<timestamp>/result.json`
+4. Enable VNC for live debugging: Set `ENABLE_VNC=true`
+5. Connect VNC to `localhost:5900` and re-run test
+6. Check logs for model errors or action failures
 
-## Resources
+### Modifying Agent Behavior
 
-**Original Working Setup**: `C:\AgentS3` (gui-agents library, working with glm-4.5v as of 2025-10-26)
+**Agent S3 Code** (upstream, modify carefully):
+- `gui_agents/s3/agents/worker.py` - Reasoner logic
+- `gui_agents/s3/agents/grounding.py` - Grounding logic
+- `gui_agents/s3/agents/agent_s.py` - Main agent loop
 
-**Failed Previous Attempt**: `C:\AgentS3SecondTry` (wrong architecture, library approach)
+**Redfinger-Specific Code**:
+- `redfinger/run_redfinger.py` - Task runner and browser setup
 
-**Agent-S Repository**: https://github.com/simular-ai/Agent-S
+After modifying:
+1. Rebuild Docker image: `docker-compose build`
+2. Test with simple task first
+3. Verify with harness: `python scripts/run_phase5_harness.py ...`
 
-**OSWorld Benchmark**: https://github.com/xlang-ai/OSWorld (Agent S3's original use case)
+### Changing Model Configuration
 
-**Docker Desktop**: https://www.docker.com/products/docker-desktop/
-
-**VNC Viewer**: https://www.realvnc.com/en/connect/download/viewer/
-
-**Redfinger**: https://www.cloudemulator.net/
-
----
-
-## Questions for Investigation
-
-1. **GPT-5 Mini Reasoning Budget**: How to increase reasoning depth for complex tasks?
-2. **Canvas Element Detection**: Does Redfinger use `<canvas>` for Android screen? (Need to verify)
-3. **Login Flow**: Does current task description handle Redfinger login properly?
-4. **Performance**: How many steps does a typical task require?
-5. **Cost**: What's the API cost per task with different models?
-
----
-
-## Technical Debt (42 TODOs in codebase)
-
-**Notable Items**:
-- `gui_agents/s3/agents/grounding.py` - Duration specification for wait actions
-- `gui_agents/s3/agents/worker.py` - RAG subask level, planner history reuse
-- `gui_agents/linux_os_aci.py` - "Terrible coordinate handling" (author's words)
-
-**Impact**: These are optimization opportunities, not blockers.
-
----
-
-## Success Criteria
-
-### Minimum Success (Ready for Production)
-- [ ] Docker image builds
-- [ ] Container starts with display
-- [ ] PyAutoGUI reports 1920x1080
-- [ ] Agent S3 imports work
-- [ ] API authentication succeeds
-- [ ] Browser launches in container
-- [ ] Agent executes at least one action
-
-### Full Success (Production Ready + Validated)
-- [ ] Redfinger page loads
-- [ ] Agent attempts login
-- [ ] Agent interacts with Android UI
-- [ ] Task completes successfully
-- [ ] Logs show reasonable behavior
-- [ ] VNC debugging works
+1. Update `.env` with new model
+2. Verify model is vision-capable (check models.md)
+3. Test API key: `python scripts/run_phase5_harness.py --dry-run`
+4. Run simple test: Use Google search task with `--max-steps 5`
+5. Check results in `logs/phase5/`
 
 ---
 
@@ -458,6 +496,7 @@ MAX_STEPS=50
 2. **Coordinate alignment requirement**: Must maintain 1:1 screen-to-browser mapping
 3. **Vision model requirement**: Both reasoner and grounding need image input
 4. **OSWorld architecture adaptation**: Using GUI agent framework for web-based Android control
+5. **Robust testing infrastructure**: Harness with timeout protection and structured logging
 
 ### Common Misconceptions to Avoid
 
@@ -465,28 +504,53 @@ MAX_STEPS=50
 2. ❌ "Just one model needs vision" → NO, both reasoner and grounding need it
 3. ❌ "Coordinate translation is needed" → NO, full-screen eliminates this
 4. ❌ "Any GPT-4/5 model works" → NO, must be vision-capable variant
+5. ❌ "Can commit directly to main" → NO, must use feature branch + PR
 
 ### When to Re-Read Documentation
 
-- If coordinate issues occur → Review architecture section above
-- If model errors occur → Review "BOTH Models MUST Be Vision-Capable"
-- If Docker issues occur → Review `docs/VALIDATION_PLAN_DETAILED.md`
-- If API errors occur → Check `.env` configuration
+- Coordinate issues → Review "Critical Architecture Understanding"
+- Model errors → Review "BOTH Models MUST Be Vision-Capable"
+- Docker issues → Review [docs/TROUBLESHOOTING_GUIDE.md](docs/TROUBLESHOOTING_GUIDE.md)
+- API errors → Check `.env` configuration
+- Git workflow questions → Review [CONTRIBUTING.md](CONTRIBUTING.md)
+- Test failures → Check [docs/VALIDATION_STATUS.md](docs/VALIDATION_STATUS.md)
 
 ---
 
-## Project History Summary
+## Project History
 
-1. **Original Working Setup** (C:\AgentS3): GUI-agents library approach, worked for desktop apps
-2. **Failed Redfinger Attempt** (C:\AgentS3SecondTry): Tried library approach for Redfinger, coordinate issues
+1. **Original Working Setup** (C:\AgentS3): GUI-agents library, worked for desktop apps
+2. **Failed Redfinger Attempt** (C:\AgentS3SecondTry): Library approach, coordinate issues
 3. **GO_FORWARD_PLAN.md Created**: Identified need for Docker-based approach
-4. **Current Implementation** (C:\Agent-S-Redfinger): Rebuilt with correct architecture, ready for validation
+4. **Current Implementation**: Rebuilt with correct architecture, validation in progress
+5. **Testing Infrastructure Added**: Robust harness with timeout protection
+6. **Git Workflow Established**: Feature branches, PR reviews, CHANGELOG.md
 
 **Key Lesson**: Use Agent S3 as intended (in container with virtual display), don't fight the framework.
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: October 29, 2025
-**Status**: Implementation complete, validation pending
-**Next Action**: Follow validation plan in `docs/VALIDATION_PLAN_DETAILED.md`
+## Technical Debt
+
+**Notable TODOs** (42 in codebase):
+- `gui_agents/s3/agents/grounding.py` - Duration specification for wait actions
+- `gui_agents/s3/agents/worker.py` - RAG subask level, planner history reuse
+- `gui_agents/linux_os_aci.py` - "Terrible coordinate handling" (author's words)
+
+**Impact**: These are optimization opportunities, not blockers.
+
+---
+
+## Resources
+
+- **Upstream Repository**: https://github.com/simular-ai/Agent-S
+- **OSWorld Benchmark**: https://github.com/xlang-ai/OSWorld
+- **Agent S3 Paper**: https://arxiv.org/abs/2510.02250
+- **Redfinger**: https://www.cloudemulator.net/
+
+---
+
+**Document Version**: 2.0
+**Last Updated**: October 30, 2025
+**Status**: Validation testing in progress
+**Next Action**: Continue Phase 5 validation tests, document results

@@ -1,24 +1,10 @@
-numpy
-backoff
-pandas
-openai
-anthropic
-fastapi
-uvicorn
-paddleocr
-paddlepaddle
-together
-scikit-learn
-websockets
-tiktoken
-pyautogui
-toml
-ruff
-pytesseract
-google-genai
-playwright
-
-# Platform-specific dependencies
-pyobjc; platform_system == "Darwin"
-pywinauto; platform_system == "Windows"
-pywin32; platform_system == "Windows" 
+python-dotenv>=1.0.1
+pydantic>=2.8.2
+selenium>=4.23.1
+webdriver-manager>=4.0.2
+Pillow>=10.4.0
+opencv-python>=4.10.0.84
+numpy>=1.26.4
+pyautogui>=0.9.54
+pygetwindow>=0.0.9
+requests>=2.32.3

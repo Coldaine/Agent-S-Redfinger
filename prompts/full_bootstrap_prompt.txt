@@ -1,0 +1,81 @@
+You are a senior Python engineer. Finish and validate this local-only MVP for VISION-FIRST UI control.
+Target repo: local-ui-ops-mvp (structure already present). Your job is to WIRE the vision providers and confirm end-to-end clicks.
+
+## Absolute goals
+1) Use **element-only screenshots** (already implemented) and preserve **image size** (png_w/h).
+2) Force a **strict normalized [0..1] JSON** output contract from models. If you receive pixels or 0..1000, normalize.
+3) Click via **Selenium element offsets**, not OS screen coords (already implemented).
+4) Support **either** ChatGPT‑5 Vision **or** Zhipu **GLM‑4.5V** (OpenAI‑compatible). Choose one in `.env`: `VISION_PROVIDER=openai|zai`.
+5) Provide robust JSON extraction and re-ask once if provider emits non-JSON.
+
+## Files to modify
+- `src/vision/providers.py`: implement `analyze_image(image_bytes, provider, model) -> str`
+  - For **OpenAI** (provider=openai): call the Vision model and return provider text containing STRICT JSON.
+  - For **Zhipu (z.ai)** (provider=zai): call GLM‑4.5V through an **OpenAI-compatible** endpoint; return STRICT JSON.
+  - Both must include the **system prompt** below and the **user prompt** (task-specific).
+
+## System Prompt (use verbatim for both providers)
+You are a vision-to-action tool. Given a single image, return ONLY this JSON with normalized coordinates in [0,1] relative to the image you received:
+{
+  "version":"1.0",
+  "coords":{"space":"normalized","x": <float 0..1>,"y": <float 0..1>},
+  "why":"<short>",
+  "confidence": <0.0..1.0>
+}
+Rules:
+- One JSON object. No extra text, no code fences.
+- (0,0)=top-left, (1,1)=bottom-right.
+- If uncertain, still output your best guess with confidence<=0.3.
+
+## User Prompt (example for generic canvas/game)
+Here is an image of a mobile game screen. Identify the single best place to click to start the daily mission. Return STRICT JSON per the schema.
+
+## Implementation guidance
+- Use `.env` for keys:
+  - `OPENAI_API_KEY` for provider=openai.
+  - `ZAI_API_KEY` and base URL `https://api.bigmodel.org` (unless changed) for provider=zai.
+- Send the **element PNG as-is**. If you resize, remember to instruct the model the coords are **normalized to the resized image** (the math still works).
+- After receiving model text, call `extract_json_object()` from `normalizer.py`. If it fails, retry once with a terse system nudge: "Return JSON only, no extra text."
+- Validate ranges: if x or y are outside [0,1], clamp and add a "clamped" note to logs.
+- Return the **raw provider text** from `analyze_image` so `browser_demo.py` can show what was parsed.
+
+## Acceptance tests (run exactly)
+1) Install & prepare:
+   ```bash
+   python -m venv .venv && . .venv/bin/activate
+   pip install -r requirements.txt
+   cp .env.example .env  # fill in your keys
+   ```
+2) Smoke test without a provider:
+   ```bash
+   python -m src.drivers.browser_selenium
+   ```
+   Expect: Chrome opens example.com, one click near center, console prints "Clicked: ..." with geometry details.
+3) Browser demo with **center-only** (control):
+   ```bash
+   python -m src.demos.browser_demo --pages "https://example.com,https://news.ycombinator.com" --selector "body" --center-only
+   ```
+4) Wire **OpenAI** (ChatGPT‑5 Vision) and run:
+   - Set in `.env`: `VISION_PROVIDER=openai`, `VISION_MODEL=gpt-5-vision`
+   - Implement `providers.analyze_image` for OpenAI: send the PNG; use the **System Prompt** above; return text.
+   ```bash
+   python -m src.demos.browser_demo --pages "https://example.com,https://news.ycombinator.com" --selector "body"
+   ```
+   Expect: For each page, the provider returns JSON; demo prints a CLICK line with normalized, png/css sizes, scale, offset.
+5) Wire **Zhipu** (GLM‑4.5V) and run:
+   - Set in `.env`: `VISION_PROVIDER=zai`, `VISION_MODEL=glm-4.5v`
+   - Implement OpenAI-compatible call (z.ai uses an OpenAI-like schema). Return text from the model.
+   ```bash
+   python -m src.demos.browser_demo --pages "https://example.com,https://news.ycombinator.com" --selector "body"
+   ```
+6) Negative case: make the model return 0..1000 or pixel coords on purpose. Ensure the normalizer converts to [0..1] and the click still lands inside the element.
+
+## Troubleshooting checklist
+- If clicks land outside element: print the "explain" line and verify png_w×png_h vs css width/height and derived scales.
+- If provider returns prose: run the re-ask path and show the exact request payload used for the second try (with keys redacted).
+- Windows: avoid maximized windows if you notice odd element rects; keep DPI at 100% first run.
+
+## Done criteria (print this on success)
+- "OpenAI(zai) provider wired ✔"
+- For page 1 and 2: a single CLICK line with offsets within element bounds.
+- Provider raw text snippet (first 120 chars) and parsed normalized coords shown.

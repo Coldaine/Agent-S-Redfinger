@@ -71,8 +71,12 @@ def _post_chat_completions(
         "messages": messages,
         # Keep responses deterministic-ish to reduce prose risk
         "temperature": 0.2,
-        "max_tokens": 300,
     }
+    # GPT-5 models use max_completion_tokens, older models use max_tokens
+    if model.startswith("gpt-5") or model.startswith("o3") or model.startswith("o4"):
+        payload["max_completion_tokens"] = 300
+    else:
+        payload["max_tokens"] = 300
     resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
     if resp.status_code != 200:
         raise RuntimeError(f"Provider HTTP {resp.status_code}: {resp.text[:200]}")

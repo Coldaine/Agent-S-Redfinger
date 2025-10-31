@@ -89,6 +89,9 @@ def _post_chat_completions(
 
 def analyze_image(image_bytes: bytes, provider: str, model: str) -> str:
     provider = (provider or "none").lower()
+    # Disallow expensive "pro" variants per project policy
+    if model and isinstance(model, str) and "pro" in model.lower():
+        raise RuntimeError("Model variants with '-pro' are disabled by policy. Use gpt-5 or gpt-5-mini (or nano).")
     if provider == "none":
         # Return a center prediction in strict JSON for smoke tests.
         return json.dumps({"version":"1.0","coords":{"space":"normalized","x":0.5,"y":0.5},"why":"center","confidence":0.1})
